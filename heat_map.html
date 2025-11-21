@@ -436,7 +436,12 @@
             <div class="control-panel">
                 <div class="file-upload">
                     <input type="file" id="file-input" accept=".xlsx,.xls" />
-                    <label for="file-input">📁 Загрузить XLSX файл</label>
+                    <label for="file-input">📁 Загрузить файл перемещений</label>
+                </div>
+
+                <div class="file-upload" style="margin-top: 15px;">
+                    <input type="file" id="planogram-input" accept=".xlsx,.xls" />
+                    <label for="planogram-input" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">📋 Загрузить планограмму</label>
                 </div>
 
                 <div class="employee-selector">
@@ -545,6 +550,8 @@
                 this.dates = [];
                 this.locationVisits = {};
                 this.processedData = {};
+                this.planogramData = {};
+                this.allCells = {};
                 this.currentEmployee = null;
                 this.currentFloor = null;
                 this.currentDate = null;
@@ -577,13 +584,17 @@
             
             initEventListeners() {
                 document.getElementById('file-input').addEventListener('change', (e) => this.handleFileUpload(e));
+                document.getElementById('planogram-input').addEventListener('change', (e) => this.handlePlanogramUpload(e));
                 document.getElementById('employee-select').addEventListener('change', (e) => this.handleEmployeeChange(e.target.value));
                 document.getElementById('date-select').addEventListener('change', (e) => {
                     this.currentDate = e.target.value;
                     this.updateStats();
                     this.updateMap();
                 });
-                document.getElementById('floor-select').addEventListener('change', (e) => this.currentFloor = e.target.value);
+                document.getElementById('floor-select').addEventListener('change', (e) => {
+                    this.currentFloor = e.target.value;
+                    this.updateStats();
+                });
                 document.getElementById('update-button').addEventListener('click', () => this.updateMap());
                 document.getElementById('spaghetti-checkbox').addEventListener('change', (e) => {
                     this.spaghettiMode = e.target.checked;
@@ -594,6 +605,49 @@
                         this.hideTooltip();
                     }
                 });
+            }
+            
+            async handlePlanogramUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                try {
+                    const data = await this.readExcelFile(file);
+                    console.log('Планограмма загружена:', data);
+                    this.processPlanogram(data);
+                    this.updateMap();
+                } catch (error) {
+                    console.error('Ошибка при обработке планограммы:', error);
+                    alert('Ошибка при обработке планограммы: ' + error.message);
+                }
+            }
+            
+            processPlanogram(rawData) {
+                console.log('Обработка планограммы:', rawData.length, 'записей');
+                
+                this.allCells = {};
+                
+                for (const row of rawData) {
+                    const addressCol = row['Адрес хранения'] || row['Address'] || row['Место'];
+                    
+                    if (!addressCol) continue;
+                    
+                    const address = String(addressCol).trim();
+                    const parsed = this.parseAddress(address);
+                    
+                    if (parsed) {
+                        const key = `${parsed.mezzanine}_${parsed.floor}`;
+                        if (!this.allCells[key]) {
+                            this.allCells[key] = [];
+                        }
+                        this.allCells[key].push({
+                            address: address,
+                            ...parsed
+                        });
+                    }
+                }
+                
+                console.log('Обработано ячеек планограммы:', Object.keys(this.allCells).length, 'этажей');
             }
             
             async handleFileUpload(event) {
@@ -1052,23 +1106,42 @@
                 const alleyCount = this.alley_counts[mezzanine];
                 const baseColor = this.colors[mezzanine];
                 
+                // Находим максимальный пролет для всех аллей (из планограммы или из перемещений)
+                let globalMaxSpan = 0;
+                const floorKey = `${mezzanine}_${floor}`;
+                
+                // Проверяем планограмму
+                if (this.allCells[floorKey]) {
+                    for (const cell of this.allCells[floorKey]) {
+                        if (cell.span > globalMaxSpan) {
+                            globalMaxSpan = cell.span;
+                        }
+                    }
+                }
+                
+                // Проверяем перемещения
+                for (let alley = 1; alley <= alleyCount; alley++) {
+                    const spans = alleySpanData[alley] ? Array.from(alleySpanData[alley]) : [];
+                    for (const span of spans) {
+                        if (span > globalMaxSpan) {
+                            globalMaxSpan = span;
+                        }
+                    }
+                }
+                
+                // Единая длина для всех аллей
+                const uniformLineLength = globalMaxSpan > 0 ? globalMaxSpan * this.config.span_spacing + 50 : this.config.line_length;
+                
                 // Отрисовываем каждую аллею
                 for (let alley = 1; alley <= alleyCount; alley++) {
                     const y = alley * this.config.alley_spacing;
                     const spans = alleySpanData[alley] ? Array.from(alleySpanData[alley]).sort((a, b) => a - b) : [];
                     
-                    // Вычисляем длину линии до последнего пролета
-                    let lineLength = this.config.line_length;
-                    if (spans.length > 0) {
-                        const maxSpan = Math.max(...spans);
-                        lineLength = (maxSpan) * this.config.span_spacing + 50; // +50 для небольшого отступа
-                    }
-                    
-                    // Рисуем линию аллеи
+                    // Рисуем линию аллеи единой длины
                     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                     line.setAttribute('x1', this.config.line_start_x);
                     line.setAttribute('y1', y);
-                    line.setAttribute('x2', this.config.line_start_x + lineLength);
+                    line.setAttribute('x2', this.config.line_start_x + uniformLineLength);
                     line.setAttribute('y2', y);
                     line.setAttribute('stroke', spans.length > 0 ? baseColor : '#bdc3c7');
                     line.setAttribute('class', spans.length > 0 ? 'alley-line' : 'alley-line empty');
@@ -1124,6 +1197,37 @@
                     }
                 }
                 
+                // Рисуем все ячейки из планограммы (если загружена)
+                if (this.allCells[floorKey]) {
+                    for (const cell of this.allCells[floorKey]) {
+                        const x = this.config.line_start_x + (cell.span - 1) * this.config.span_spacing;
+                        const y = cell.alley * this.config.alley_spacing;
+                        const spanKey = `${cell.alley}_${cell.span}`;
+                        
+                        // Если ячейка уже была отрисована выше (есть в посещениях), пропускаем
+                        if (spanVisits[spanKey]) continue;
+                        
+                        // Рисуем пустую ячейку из планограммы
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        rect.setAttribute('x', x - this.config.span_width / 2);
+                        rect.setAttribute('y', y - this.config.span_height / 2);
+                        rect.setAttribute('width', this.config.span_width);
+                        rect.setAttribute('height', this.config.span_height);
+                        rect.setAttribute('fill', '#ecf0f1');
+                        rect.setAttribute('stroke', '#95a5a6');
+                        rect.setAttribute('stroke-width', '1');
+                        rect.setAttribute('class', 'span-point');
+                        rect.setAttribute('data-alley', cell.alley);
+                        rect.setAttribute('data-span', cell.span);
+                        
+                        rect.addEventListener('click', (e) => {
+                            this.showTooltip(e, mezzanine, floor, cell.alley, cell.span, null);
+                        });
+                        
+                        svg.appendChild(rect);
+                    }
+                }
+                
                 // Заголовок карты
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 title.setAttribute('x', '700');
@@ -1138,7 +1242,7 @@
                 
                 // Рисуем спагетти-линии если режим включен
                 if (this.spaghettiMode && movementsForFloor && movementsForFloor.length > 0) {
-                    this.drawSpaghettiLines(svg, movementsForFloor, mezzanine, floor);
+                    this.drawSpaghettiLines(svg, movementsForFloor, mezzanine, floor, floorKey);
                 }
             }
             
@@ -1166,7 +1270,7 @@
                 return `${day}.${month} ${hours}:${minutes}`;
             }
             
-            drawSpaghettiLines(svg, movements, mezzanine, floor) {
+            drawSpaghettiLines(svg, movements, mezzanine, floor, floorKey) {
                 const sequenceMap = {};
                 let sequenceNumber = 1;
                 
@@ -1204,29 +1308,17 @@
                         // Определяем цвет линии по градиенту
                         const lineColor = this.getSequenceColor(i, totalSteps);
                         
-                        // Рисуем линию с кривой для лучшей видимости
+                        // Строим оптимальный путь (обходим аллеи с ячейками)
+                        const pathData = this.buildOptimalPath(x1, y1, x2, y2, current, next, floorKey);
+                        
                         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        const midX = (x1 + x2) / 2;
-                        const midY = (y1 + y2) / 2;
-                        const dx = x2 - x1;
-                        const dy = y2 - y1;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        
-                        // Создаем кривую Безье для более плавной линии
-                        const curvature = Math.min(distance / 4, 30);
-                        const controlX1 = x1 + dx / 3;
-                        const controlY1 = y1 + dy / 3 - curvature;
-                        const controlX2 = x1 + 2 * dx / 3;
-                        const controlY2 = y1 + 2 * dy / 3 - curvature;
-                        
-                        const pathData = `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
                         path.setAttribute('d', pathData);
                         path.setAttribute('class', 'spaghetti-line');
                         path.setAttribute('stroke', lineColor);
                         svg.appendChild(path);
                         
                         // Рисуем стрелку на конце линии
-                        const angle = Math.atan2(y2 - controlY2, x2 - controlX2);
+                        const angle = Math.atan2(y2 - y1, x2 - x1);
                         const arrowSize = 8;
                         const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
                         const p1x = x2;
@@ -1278,6 +1370,55 @@
                 }
             }
             
+            buildOptimalPath(x1, y1, x2, y2, current, next, floorKey) {
+                // Если перемещение в пределах одной аллеи - прямая линия
+                if (current.alley === next.alley) {
+                    return `M ${x1} ${y1} L ${x2} ${y2}`;
+                }
+                
+                // Определяем, есть ли ячейки между текущими аллеями
+                const minAlley = Math.min(current.alley, next.alley);
+                const maxAlley = Math.max(current.alley, next.alley);
+                
+                // Проверяем наличие ячеек в промежуточных аллеях
+                let hasBlockingCells = false;
+                if (this.allCells[floorKey]) {
+                    const minSpan = Math.min(current.span, next.span);
+                    const maxSpan = Math.max(current.span, next.span);
+                    
+                    for (const cell of this.allCells[floorKey]) {
+                        // Если ячейка находится между нашими аллеями и пролетами
+                        if (cell.alley > minAlley && cell.alley < maxAlley &&
+                            cell.span >= minSpan - 2 && cell.span <= maxSpan + 2) {
+                            hasBlockingCells = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // Если есть блокирующие ячейки, строим путь через проходы
+                if (hasBlockingCells) {
+                    // Идем сначала вдоль текущей аллеи, затем переходим к следующей
+                    const alleySpacing = this.config.alley_spacing;
+                    const midY = current.alley < next.alley ? y1 + alleySpacing / 2 : y1 - alleySpacing / 2;
+                    
+                    // Путь с промежуточными точками
+                    return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+                } else {
+                    // Если нет блокирующих ячеек, используем плавную кривую
+                    const dx = x2 - x1;
+                    const dy = y2 - y1;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const curvature = Math.min(distance / 4, 30);
+                    const controlX1 = x1 + dx / 3;
+                    const controlY1 = y1 + dy / 3 - curvature;
+                    const controlX2 = x1 + 2 * dx / 3;
+                    const controlY2 = y1 + 2 * dy / 3 - curvature;
+                    
+                    return `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
+                }
+            }
+            
             showTooltip(event, mezzanine, floor, alley, span, visitData) {
                 const tooltip = document.getElementById('tooltip');
                 
@@ -1285,14 +1426,18 @@
                 const employeeCount = visitData ? visitData.employees.size : 0;
                 const movements = visitData ? visitData.movements : [];
                 
+                // Получаем адрес ячейки
+                const cellAddress = movements.length > 0 ? movements[0].location : `${mezzanine}${floor * 100 + alley}-${span}-01`;
+                
                 let html = `
-                    <h4>${mezzanine}${floor} - Аллея ${alley}, Пролет ${span}</h4>
+                    <h4>Ячейка: ${cellAddress}</h4>
+                    <div class="tooltip-info" style="font-size: 11px; color: #bbb;">${mezzanine}${floor} - Аллея ${alley}, Пролет ${span}</div>
                     <div class="tooltip-info"><strong>Всего посещений:</strong> ${visitCount}</div>
                     <div class="tooltip-info"><strong>Сотрудников:</strong> ${employeeCount}</div>
                 `;
                 
                 if (movements.length > 0) {
-                    // Сортируем по времени
+                    // Сортируем по времени (используем timestamp для начала выполнения)
                     const sortedMovements = [...movements].sort((a, b) => {
                         if (a.timestamp && b.timestamp) {
                             return a.timestamp - b.timestamp;
@@ -1315,12 +1460,13 @@
                     for (const [employee, visits] of sortedEmployees.slice(0, 10)) {
                         html += `<div class="tooltip-info" style="padding-left: 10px; margin-top: 5px;"><strong>• ${employee}:</strong> (${visits.length} раз)</div>`;
                         
-                        // Показываем все посещения с временем
+                        // Показываем все посещения с временем начала выполнения
                         for (let i = 0; i < Math.min(visits.length, 5); i++) {
                             const visit = visits[i];
-                            const time = this.formatTime(visit.timestamp);
+                            const time = this.formatTime(visit.timestamp); // timestamp = startTime (начало выполнения)
+                            const qty = visit.quantity ? ` - ${visit.quantity} шт.` : '';
                             html += `<div class="tooltip-info" style="padding-left: 25px; font-size: 11px; color: #bbb;">
-                                ${i + 1}. ${time}
+                                ${i + 1}. ${time}${qty}
                             </div>`;
                         }
                         

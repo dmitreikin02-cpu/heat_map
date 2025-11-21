@@ -70,17 +70,17 @@
             position: relative;
         }
 
-        .floor-selector, .employee-selector {
+        .floor-selector, .employee-selector, .date-selector {
             margin-bottom: 30px;
         }
 
-        .floor-selector h3, .employee-selector h3 {
+        .floor-selector h3, .employee-selector h3, .date-selector h3 {
             margin-bottom: 15px;
             color: #2c3e50;
             font-size: 1.2em;
         }
 
-        .floor-selector select, .employee-selector select {
+        .floor-selector select, .employee-selector select, .date-selector select {
             width: 100%;
             padding: 12px 15px;
             border: 2px solid #e9ecef;
@@ -93,7 +93,7 @@
             box-shadow: none;
         }
 
-        .floor-selector select:focus, .employee-selector select:focus {
+        .floor-selector select:focus, .employee-selector select:focus, .date-selector select:focus {
             outline: none;
             border-color: #007bff;
             box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
@@ -447,6 +447,13 @@
                     </select>
                 </div>
 
+                <div class="date-selector">
+                    <h3>📅 Выбор даты</h3>
+                    <select id="date-select">
+                        <option value="">Все даты</option>
+                    </select>
+                </div>
+
                 <div class="floor-selector">
                     <h3>🏢 Выбор этажа</h3>
                     <select id="floor-select">
@@ -484,6 +491,16 @@
                         <div class="stat-item movements">
                             <div class="stat-number" id="max-visits">0</div>
                             <div class="stat-label">Макс. визитов</div>
+                        </div>
+                    </div>
+                    <div class="stat-grid" style="margin-top: 15px;">
+                        <div class="stat-item total">
+                            <div class="stat-number" id="total-quantity">0</div>
+                            <div class="stat-label">Собрано</div>
+                        </div>
+                        <div class="stat-item employees">
+                            <div class="stat-number" id="work-time">0:00</div>
+                            <div class="stat-label">Время работы</div>
                         </div>
                     </div>
                 </div>
@@ -525,10 +542,12 @@
             constructor() {
                 this.movements = [];
                 this.employees = [];
+                this.dates = [];
                 this.locationVisits = {};
                 this.processedData = {};
                 this.currentEmployee = null;
                 this.currentFloor = null;
+                this.currentDate = null;
                 this.activeTooltip = null;
                 this.spaghettiMode = false;
                 
@@ -559,6 +578,11 @@
             initEventListeners() {
                 document.getElementById('file-input').addEventListener('change', (e) => this.handleFileUpload(e));
                 document.getElementById('employee-select').addEventListener('change', (e) => this.handleEmployeeChange(e.target.value));
+                document.getElementById('date-select').addEventListener('change', (e) => {
+                    this.currentDate = e.target.value;
+                    this.updateStats();
+                    this.updateMap();
+                });
                 document.getElementById('floor-select').addEventListener('change', (e) => this.currentFloor = e.target.value);
                 document.getElementById('update-button').addEventListener('click', () => this.updateMap());
                 document.getElementById('spaghetti-checkbox').addEventListener('change', (e) => {
@@ -657,6 +681,7 @@
                 
                 this.movements = [];
                 const employeeSet = new Set();
+                const dateSet = new Set();
                 this.locationVisits = {};
                 
                 for (const row of rawData) {
@@ -664,6 +689,7 @@
                     const locationCol = row['Место'] || row['Location'] || row['Place'];
                     const startTimeCol = row['Начало выполнения'] || row['Start Time'] || row['Время начала'];
                     const endTimeCol = row['Время завершения'] || row['End Time'] || row['Finish Time'];
+                    const quantityCol = row['Количество'] || row['Quantity'] || row['Кол-во'];
                     
                     if (!employeeCol || !locationCol) continue;
                     
@@ -678,6 +704,7 @@
                         
                         let startTime = null;
                         let endTime = null;
+                        let quantity = 0;
                         
                         if (startTimeCol) {
                             startTime = this.parseExcelDate(startTimeCol);
@@ -685,8 +712,17 @@
                         if (endTimeCol) {
                             endTime = this.parseExcelDate(endTimeCol);
                         }
+                        if (quantityCol) {
+                            quantity = parseFloat(quantityCol) || 0;
+                        }
                         
                         const timestamp = startTime || endTime || new Date();
+                        
+                        // Извлекаем дату (без времени) для фильтрации
+                        if (timestamp) {
+                            const dateStr = timestamp.toISOString().split('T')[0];
+                            dateSet.add(dateStr);
+                        }
                         
                         this.movements.push({
                             employee: employee,
@@ -694,6 +730,7 @@
                             startTime: startTime,
                             endTime: endTime,
                             timestamp: timestamp,
+                            quantity: quantity,
                             ...parsed
                         });
                         
@@ -711,13 +748,16 @@
                         this.locationVisits[locationKey].movements.push({
                             employee: employee,
                             location: location,
-                            timestamp: timestamp
+                            timestamp: timestamp,
+                            quantity: quantity
                         });
                     }
                 }
                 
                 this.employees = Array.from(employeeSet).sort();
+                this.dates = Array.from(dateSet).sort();
                 console.log('Найдено сотрудников:', this.employees.length);
+                console.log('Найдено дат:', this.dates.length);
                 console.log('Обработано перемещений:', this.movements.length);
                 console.log('Уникальных мест:', Object.keys(this.locationVisits).length);
                 
@@ -767,6 +807,7 @@
             
             updateUI() {
                 this.updateEmployeeSelector();
+                this.updateDateSelector();
                 this.updateFloorSelector();
                 this.updateStats();
                 
@@ -795,6 +836,22 @@
                     const option = document.createElement('option');
                     option.value = employee;
                     option.textContent = employee;
+                    select.appendChild(option);
+                }
+            }
+            
+            updateDateSelector() {
+                const select = document.getElementById('date-select');
+                select.innerHTML = '<option value="">Все даты</option>';
+                
+                for (const date of this.dates) {
+                    const option = document.createElement('option');
+                    option.value = date;
+                    const dateObj = new Date(date);
+                    const day = String(dateObj.getDate()).padStart(2, '0');
+                    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    const year = dateObj.getFullYear();
+                    option.textContent = `${day}.${month}.${year}`;
                     select.appendChild(option);
                 }
             }
@@ -832,10 +889,24 @@
                 let movementsToCount = this.movements;
                 let locationVisitsToCount = this.locationVisits;
                 
+                // Фильтрация по сотруднику
                 if (this.currentEmployee && this.currentEmployee !== 'ALL') {
-                    movementsToCount = this.movements.filter(m => m.employee === this.currentEmployee);
-                    
-                    // Пересчитываем посещения мест для выбранного сотрудника
+                    movementsToCount = movementsToCount.filter(m => m.employee === this.currentEmployee);
+                }
+                
+                // Фильтрация по дате
+                if (this.currentDate) {
+                    movementsToCount = movementsToCount.filter(m => {
+                        if (m.timestamp) {
+                            const dateStr = m.timestamp.toISOString().split('T')[0];
+                            return dateStr === this.currentDate;
+                        }
+                        return false;
+                    });
+                }
+                
+                // Пересчитываем посещения мест для отфильтрованных данных
+                if (this.currentEmployee && this.currentEmployee !== 'ALL' || this.currentDate) {
                     locationVisitsToCount = {};
                     for (const movement of movementsToCount) {
                         const locationKey = `${movement.mezzanine}_${movement.floor}_${movement.alley}_${movement.span}`;
@@ -851,10 +922,29 @@
                 const uniqueLocations = Object.keys(locationVisitsToCount).length;
                 const maxVisits = Math.max(0, ...Object.values(locationVisitsToCount).map(v => v.count));
                 
+                // Рассчитываем общее количество
+                const totalQuantity = movementsToCount.reduce((sum, m) => sum + (m.quantity || 0), 0);
+                
+                // Рассчитываем общее время работы
+                let totalWorkMinutes = 0;
+                for (const movement of movementsToCount) {
+                    if (movement.startTime && movement.endTime) {
+                        const diffMs = movement.endTime - movement.startTime;
+                        const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+                        totalWorkMinutes += diffMinutes;
+                    }
+                }
+                
+                const workHours = Math.floor(totalWorkMinutes / 60);
+                const workMinutes = totalWorkMinutes % 60;
+                const workTimeStr = `${workHours}:${String(workMinutes).padStart(2, '0')}`;
+                
                 document.getElementById('total-movements').textContent = totalMovements.toLocaleString();
                 document.getElementById('total-employees').textContent = totalEmployees.toLocaleString();
                 document.getElementById('unique-locations').textContent = uniqueLocations.toLocaleString();
                 document.getElementById('max-visits').textContent = maxVisits.toLocaleString();
+                document.getElementById('total-quantity').textContent = totalQuantity.toLocaleString();
+                document.getElementById('work-time').textContent = workTimeStr;
                 
                 // Обновляем заголовок
                 const statsTitle = document.getElementById('stats-title');
@@ -898,6 +988,17 @@
                 let movementsForFloor = floorData.movements;
                 if (this.currentEmployee && this.currentEmployee !== 'ALL') {
                     movementsForFloor = movementsForFloor.filter(m => m.employee === this.currentEmployee);
+                }
+                
+                // Фильтруем по дате
+                if (this.currentDate) {
+                    movementsForFloor = movementsForFloor.filter(m => {
+                        if (m.timestamp) {
+                            const dateStr = m.timestamp.toISOString().split('T')[0];
+                            return dateStr === this.currentDate;
+                        }
+                        return false;
+                    });
                 }
                 
                 // Сортируем по времени для спагетти-диаграммы
@@ -956,11 +1057,18 @@
                     const y = alley * this.config.alley_spacing;
                     const spans = alleySpanData[alley] ? Array.from(alleySpanData[alley]).sort((a, b) => a - b) : [];
                     
+                    // Вычисляем длину линии до последнего пролета
+                    let lineLength = this.config.line_length;
+                    if (spans.length > 0) {
+                        const maxSpan = Math.max(...spans);
+                        lineLength = (maxSpan) * this.config.span_spacing + 50; // +50 для небольшого отступа
+                    }
+                    
                     // Рисуем линию аллеи
                     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                     line.setAttribute('x1', this.config.line_start_x);
                     line.setAttribute('y1', y);
-                    line.setAttribute('x2', this.config.line_start_x + this.config.line_length);
+                    line.setAttribute('x2', this.config.line_start_x + lineLength);
                     line.setAttribute('y2', y);
                     line.setAttribute('stroke', spans.length > 0 ? baseColor : '#bdc3c7');
                     line.setAttribute('class', spans.length > 0 ? 'alley-line' : 'alley-line empty');

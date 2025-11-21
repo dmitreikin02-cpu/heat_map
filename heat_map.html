@@ -267,15 +267,12 @@
         }
 
         .spaghetti-line {
-            stroke: #9b59b6;
             stroke-width: 2;
             fill: none;
             opacity: 0.7;
-            marker-end: url(#arrowhead);
         }
 
         .sequence-number {
-            fill: #9b59b6;
             font-size: 10px;
             font-weight: bold;
             text-anchor: middle;
@@ -284,7 +281,6 @@
 
         .sequence-circle {
             fill: white;
-            stroke: #9b59b6;
             stroke-width: 2;
         }
 
@@ -943,15 +939,12 @@
                 const svg = document.getElementById('mezzanine-svg');
                 svg.innerHTML = '';
                 
-                // Добавляем фильтр для тени и стрелку для линий
+                // Добавляем фильтр для тени
                 svg.innerHTML = `
                     <defs>
                         <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                             <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
                         </filter>
-                        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-                            <polygon points="0 0, 10 3, 0 6" fill="#9b59b6" />
-                        </marker>
                     </defs>
                 `;
                 
@@ -1041,6 +1034,30 @@
                 }
             }
             
+            getSequenceColor(index, totalCount) {
+                if (totalCount <= 1) return '#2ecc71';
+                
+                const ratio = index / (totalCount - 1);
+                
+                // Градиент от зеленого (0,1,0) к красному (1,0,0)
+                const red = Math.round(ratio * 255);
+                const green = Math.round((1 - ratio) * 255);
+                const blue = 0;
+                
+                return `rgb(${red}, ${green}, ${blue})`;
+            }
+            
+            formatTime(timestamp) {
+                if (!timestamp || !(timestamp instanceof Date)) return 'н/д';
+                
+                const hours = String(timestamp.getHours()).padStart(2, '0');
+                const minutes = String(timestamp.getMinutes()).padStart(2, '0');
+                const day = String(timestamp.getDate()).padStart(2, '0');
+                const month = String(timestamp.getMonth() + 1).padStart(2, '0');
+                
+                return `${day}.${month} ${hours}:${minutes}`;
+            }
+            
             drawSpaghettiLines(svg, movements, mezzanine, floor) {
                 const sequenceMap = {};
                 let sequenceNumber = 1;
@@ -1064,6 +1081,8 @@
                     // Сортируем перемещения сотрудника по времени
                     empMovements.sort((a, b) => a.timestamp - b.timestamp);
                     
+                    const totalSteps = empMovements.length;
+                    
                     // Рисуем линии между последовательными перемещениями
                     for (let i = 0; i < empMovements.length - 1; i++) {
                         const current = empMovements[i];
@@ -1073,6 +1092,9 @@
                         const y1 = current.alley * this.config.alley_spacing;
                         const x2 = this.config.line_start_x + (next.span - 1) * this.config.span_spacing;
                         const y2 = next.alley * this.config.alley_spacing;
+                        
+                        // Определяем цвет линии по градиенту
+                        const lineColor = this.getSequenceColor(i, totalSteps);
                         
                         // Рисуем линию с кривой для лучшей видимости
                         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1092,7 +1114,23 @@
                         const pathData = `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
                         path.setAttribute('d', pathData);
                         path.setAttribute('class', 'spaghetti-line');
+                        path.setAttribute('stroke', lineColor);
                         svg.appendChild(path);
+                        
+                        // Рисуем стрелку на конце линии
+                        const angle = Math.atan2(y2 - controlY2, x2 - controlX2);
+                        const arrowSize = 8;
+                        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        const p1x = x2;
+                        const p1y = y2;
+                        const p2x = x2 - arrowSize * Math.cos(angle - Math.PI / 6);
+                        const p2y = y2 - arrowSize * Math.sin(angle - Math.PI / 6);
+                        const p3x = x2 - arrowSize * Math.cos(angle + Math.PI / 6);
+                        const p3y = y2 - arrowSize * Math.sin(angle + Math.PI / 6);
+                        arrow.setAttribute('points', `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`);
+                        arrow.setAttribute('fill', lineColor);
+                        arrow.setAttribute('opacity', '0.7');
+                        svg.appendChild(arrow);
                     }
                     
                     // Добавляем порядковые номера к каждому посещению
@@ -1107,6 +1145,9 @@
                         }
                         sequenceMap[locationKey].push(i + 1);
                         
+                        // Определяем цвет по градиенту
+                        const color = this.getSequenceColor(i, totalSteps);
+                        
                         // Рисуем кружок с номером
                         const offsetY = -15 - (sequenceMap[locationKey].length - 1) * 15;
                         
@@ -1115,12 +1156,14 @@
                         circle.setAttribute('cy', y + offsetY);
                         circle.setAttribute('r', '8');
                         circle.setAttribute('class', 'sequence-circle');
+                        circle.setAttribute('stroke', color);
                         svg.appendChild(circle);
                         
                         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                         text.setAttribute('x', x);
                         text.setAttribute('y', y + offsetY);
                         text.setAttribute('class', 'sequence-number');
+                        text.setAttribute('fill', color);
                         text.textContent = i + 1;
                         svg.appendChild(text);
                     }
@@ -1141,23 +1184,47 @@
                 `;
                 
                 if (movements.length > 0) {
-                    // Группируем по сотрудникам
-                    const employeeVisits = {};
-                    for (const movement of movements) {
-                        if (!employeeVisits[movement.employee]) {
-                            employeeVisits[movement.employee] = 0;
+                    // Сортируем по времени
+                    const sortedMovements = [...movements].sort((a, b) => {
+                        if (a.timestamp && b.timestamp) {
+                            return a.timestamp - b.timestamp;
                         }
-                        employeeVisits[movement.employee]++;
+                        return 0;
+                    });
+                    
+                    // Группируем по сотрудникам с временными метками
+                    const employeeVisits = {};
+                    for (const movement of sortedMovements) {
+                        if (!employeeVisits[movement.employee]) {
+                            employeeVisits[movement.employee] = [];
+                        }
+                        employeeVisits[movement.employee].push(movement);
                     }
                     
                     html += '<div class="tooltip-info" style="margin-top: 10px;"><strong>По сотрудникам:</strong></div>';
-                    const sortedEmployees = Object.entries(employeeVisits).sort((a, b) => b[1] - a[1]);
-                    for (const [employee, count] of sortedEmployees.slice(0, 10)) {
-                        html += `<div class="tooltip-info" style="padding-left: 10px;">• ${employee}: ${count}</div>`;
+                    const sortedEmployees = Object.entries(employeeVisits).sort((a, b) => b[1].length - a[1].length);
+                    
+                    for (const [employee, visits] of sortedEmployees.slice(0, 10)) {
+                        html += `<div class="tooltip-info" style="padding-left: 10px; margin-top: 5px;"><strong>• ${employee}:</strong> (${visits.length} раз)</div>`;
+                        
+                        // Показываем все посещения с временем
+                        for (let i = 0; i < Math.min(visits.length, 5); i++) {
+                            const visit = visits[i];
+                            const time = this.formatTime(visit.timestamp);
+                            html += `<div class="tooltip-info" style="padding-left: 25px; font-size: 11px; color: #bbb;">
+                                ${i + 1}. ${time}
+                            </div>`;
+                        }
+                        
+                        if (visits.length > 5) {
+                            html += `<div class="tooltip-info" style="padding-left: 25px; font-size: 11px; font-style: italic; color: #999;">
+                                ... еще ${visits.length - 5} посещений
+                            </div>`;
+                        }
                     }
                     
                     if (sortedEmployees.length > 10) {
-                        html += `<div class="tooltip-info" style="padding-left: 10px; font-style: italic;">... и еще ${sortedEmployees.length - 10}</div>`;
+                        html += `<div class="tooltip-info" style="padding-left: 10px; font-style: italic; margin-top: 5px;">... и еще ${sortedEmployees.length - 10} сотрудников</div>`;
                     }
                 }
                 

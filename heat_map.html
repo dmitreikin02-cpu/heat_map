@@ -468,13 +468,13 @@
                 </div>
 
                 <div class="spaghetti-toggle">
-                    <h3>🍝 Спагетти-диаграмма</h3>
+                    <h3>🔢 Последовательность</h3>
                     <div class="toggle-switch">
                         <input type="checkbox" id="spaghetti-checkbox" />
-                        <label for="spaghetti-checkbox">Показать маршруты</label>
+                        <label for="spaghetti-checkbox">Показать номера</label>
                     </div>
                     <div style="font-size: 12px; margin-top: 10px; color: #6c757d;">
-                        Показывает последовательность перемещений с порядковыми номерами
+                        Показывает порядковые номера посещений ячеек
                     </div>
                 </div>
 
@@ -1253,35 +1253,6 @@
                     }
                 }
                 
-                // Рисуем проходы и лестницы
-                const passages = this.passages[mezzanine] || [];
-                for (const passage of passages) {
-                    const x = this.config.line_start_x + (passage.span - 1) * this.config.span_spacing;
-                    
-                    // Рисуем вертикальную линию прохода через все аллеи
-                    const passageLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                    passageLine.setAttribute('x1', x);
-                    passageLine.setAttribute('y1', this.config.alley_spacing);
-                    passageLine.setAttribute('x2', x);
-                    passageLine.setAttribute('y2', alleyCount * this.config.alley_spacing);
-                    passageLine.setAttribute('stroke', passage.type === 'stairs' ? '#e67e22' : '#27ae60');
-                    passageLine.setAttribute('stroke-width', '3');
-                    passageLine.setAttribute('stroke-dasharray', passage.type === 'stairs' ? '5,5' : 'none');
-                    passageLine.setAttribute('opacity', '0.4');
-                    svg.appendChild(passageLine);
-                    
-                    // Подпись прохода
-                    const passageLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                    passageLabel.setAttribute('x', x);
-                    passageLabel.setAttribute('y', this.config.alley_spacing - 10);
-                    passageLabel.setAttribute('text-anchor', 'middle');
-                    passageLabel.setAttribute('font-size', '10');
-                    passageLabel.setAttribute('font-weight', 'bold');
-                    passageLabel.setAttribute('fill', passage.type === 'stairs' ? '#e67e22' : '#27ae60');
-                    passageLabel.textContent = passage.type === 'stairs' ? `🚶 ${passage.span}` : `↔ ${passage.span}`;
-                    svg.appendChild(passageLabel);
-                }
-                
                 // Заголовок карты
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 title.setAttribute('x', '700');
@@ -1326,7 +1297,6 @@
             
             drawSpaghettiLines(svg, movements, mezzanine, floor, floorKey) {
                 const sequenceMap = {};
-                let sequenceNumber = 1;
                 
                 // Группируем по сотрудникам для отдельных маршрутов
                 const employeeMovements = {};
@@ -1337,7 +1307,7 @@
                     employeeMovements[movement.employee].push(movement);
                 }
                 
-                // Для каждого сотрудника рисуем его маршрут
+                // Для каждого сотрудника отображаем только номера посещений
                 for (const [employee, empMovements] of Object.entries(employeeMovements)) {
                     // Если выбран конкретный сотрудник или "Все"
                     if (this.currentEmployee && this.currentEmployee !== 'ALL' && employee !== this.currentEmployee) {
@@ -1348,44 +1318,6 @@
                     empMovements.sort((a, b) => a.timestamp - b.timestamp);
                     
                     const totalSteps = empMovements.length;
-                    
-                    // Рисуем линии между последовательными перемещениями
-                    for (let i = 0; i < empMovements.length - 1; i++) {
-                        const current = empMovements[i];
-                        const next = empMovements[i + 1];
-                        
-                        const x1 = this.config.line_start_x + (current.span - 1) * this.config.span_spacing;
-                        const y1 = current.alley * this.config.alley_spacing;
-                        const x2 = this.config.line_start_x + (next.span - 1) * this.config.span_spacing;
-                        const y2 = next.alley * this.config.alley_spacing;
-                        
-                        // Определяем цвет линии по градиенту
-                        const lineColor = this.getSequenceColor(i, totalSteps);
-                        
-                        // Строим оптимальный путь (обходим аллеи с ячейками)
-                        const pathData = this.buildOptimalPath(x1, y1, x2, y2, current, next, floorKey);
-                        
-                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        path.setAttribute('d', pathData);
-                        path.setAttribute('class', 'spaghetti-line');
-                        path.setAttribute('stroke', lineColor);
-                        svg.appendChild(path);
-                        
-                        // Рисуем стрелку на конце линии
-                        const angle = Math.atan2(y2 - y1, x2 - x1);
-                        const arrowSize = 8;
-                        const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                        const p1x = x2;
-                        const p1y = y2;
-                        const p2x = x2 - arrowSize * Math.cos(angle - Math.PI / 6);
-                        const p2y = y2 - arrowSize * Math.sin(angle - Math.PI / 6);
-                        const p3x = x2 - arrowSize * Math.cos(angle + Math.PI / 6);
-                        const p3y = y2 - arrowSize * Math.sin(angle + Math.PI / 6);
-                        arrow.setAttribute('points', `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`);
-                        arrow.setAttribute('fill', lineColor);
-                        arrow.setAttribute('opacity', '0.7');
-                        svg.appendChild(arrow);
-                    }
                     
                     // Добавляем порядковые номера к каждому посещению
                     for (let i = 0; i < empMovements.length; i++) {

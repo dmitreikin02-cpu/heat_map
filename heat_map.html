@@ -579,6 +579,31 @@
                     'X': '#f39c12'
                 };
                 
+                // Проходы и лестницы для каждого мезонина (пролеты, через которые можно переходить между аллеями)
+                this.passages = {
+                    'R': [
+                        { span: 10, type: 'passage' },
+                        { span: 12, type: 'stairs' },
+                        { span: 15, type: 'stairs' },
+                        { span: 16, type: 'stairs' },
+                        { span: 17, type: 'stairs' },
+                        { span: 18, type: 'stairs' },
+                        { span: 19, type: 'stairs' }
+                    ],
+                    'M': [
+                        { span: 27, type: 'passage' },
+                        { span: 34, type: 'passage' },
+                        { span: 35, type: 'passage' },
+                        { span: 39, type: 'stairs' },
+                        { span: 40, type: 'stairs' },
+                        { span: 41, type: 'passage' },
+                        { span: 42, type: 'stairs' },
+                        { span: 43, type: 'stairs' },
+                        { span: 44, type: 'stairs' }
+                    ],
+                    'X': [] // Для X пока нет данных о проходах
+                };
+                
                 this.initEventListeners();
             }
             
@@ -1228,6 +1253,35 @@
                     }
                 }
                 
+                // Рисуем проходы и лестницы
+                const passages = this.passages[mezzanine] || [];
+                for (const passage of passages) {
+                    const x = this.config.line_start_x + (passage.span - 1) * this.config.span_spacing;
+                    
+                    // Рисуем вертикальную линию прохода через все аллеи
+                    const passageLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    passageLine.setAttribute('x1', x);
+                    passageLine.setAttribute('y1', this.config.alley_spacing);
+                    passageLine.setAttribute('x2', x);
+                    passageLine.setAttribute('y2', alleyCount * this.config.alley_spacing);
+                    passageLine.setAttribute('stroke', passage.type === 'stairs' ? '#e67e22' : '#27ae60');
+                    passageLine.setAttribute('stroke-width', '3');
+                    passageLine.setAttribute('stroke-dasharray', passage.type === 'stairs' ? '5,5' : 'none');
+                    passageLine.setAttribute('opacity', '0.4');
+                    svg.appendChild(passageLine);
+                    
+                    // Подпись прохода
+                    const passageLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    passageLabel.setAttribute('x', x);
+                    passageLabel.setAttribute('y', this.config.alley_spacing - 10);
+                    passageLabel.setAttribute('text-anchor', 'middle');
+                    passageLabel.setAttribute('font-size', '10');
+                    passageLabel.setAttribute('font-weight', 'bold');
+                    passageLabel.setAttribute('fill', passage.type === 'stairs' ? '#e67e22' : '#27ae60');
+                    passageLabel.textContent = passage.type === 'stairs' ? `🚶 ${passage.span}` : `↔ ${passage.span}`;
+                    svg.appendChild(passageLabel);
+                }
+                
                 // Заголовок карты
                 const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 title.setAttribute('x', '700');
@@ -1376,36 +1430,12 @@
                     return `M ${x1} ${y1} L ${x2} ${y2}`;
                 }
                 
-                // Определяем, есть ли ячейки между текущими аллеями
-                const minAlley = Math.min(current.alley, next.alley);
-                const maxAlley = Math.max(current.alley, next.alley);
+                // Получаем мезонин для определения доступных проходов
+                const mezzanine = current.mezzanine;
+                const passages = this.passages[mezzanine] || [];
                 
-                // Проверяем наличие ячеек в промежуточных аллеях
-                let hasBlockingCells = false;
-                if (this.allCells[floorKey]) {
-                    const minSpan = Math.min(current.span, next.span);
-                    const maxSpan = Math.max(current.span, next.span);
-                    
-                    for (const cell of this.allCells[floorKey]) {
-                        // Если ячейка находится между нашими аллеями и пролетами
-                        if (cell.alley > minAlley && cell.alley < maxAlley &&
-                            cell.span >= minSpan - 2 && cell.span <= maxSpan + 2) {
-                            hasBlockingCells = true;
-                            break;
-                        }
-                    }
-                }
-                
-                // Если есть блокирующие ячейки, строим путь через проходы
-                if (hasBlockingCells) {
-                    // Идем сначала вдоль текущей аллеи, затем переходим к следующей
-                    const alleySpacing = this.config.alley_spacing;
-                    const midY = current.alley < next.alley ? y1 + alleySpacing / 2 : y1 - alleySpacing / 2;
-                    
-                    // Путь с промежуточными точками
-                    return `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
-                } else {
-                    // Если нет блокирующих ячеек, используем плавную кривую
+                if (passages.length === 0) {
+                    // Если нет данных о проходах, используем старую логику
                     const dx = x2 - x1;
                     const dy = y2 - y1;
                     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1414,9 +1444,62 @@
                     const controlY1 = y1 + dy / 3 - curvature;
                     const controlX2 = x1 + 2 * dx / 3;
                     const controlY2 = y1 + 2 * dy / 3 - curvature;
-                    
                     return `M ${x1} ${y1} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${x2} ${y2}`;
                 }
+                
+                // Находим ближайший проход к текущей позиции
+                const currentSpan = current.span;
+                const nextSpan = next.span;
+                
+                // Находим оптимальный проход между двумя точками
+                let bestPassage = null;
+                let minDistance = Infinity;
+                
+                for (const passage of passages) {
+                    // Проверяем, находится ли проход между текущим и следующим пролетом
+                    const minSpan = Math.min(currentSpan, nextSpan);
+                    const maxSpan = Math.max(currentSpan, nextSpan);
+                    
+                    // Расстояние до прохода от обеих точек
+                    const distToCurrent = Math.abs(passage.span - currentSpan);
+                    const distToNext = Math.abs(passage.span - nextSpan);
+                    const totalDist = distToCurrent + distToNext;
+                    
+                    // Предпочитаем проходы, которые находятся между точками
+                    if (passage.span >= minSpan && passage.span <= maxSpan) {
+                        if (totalDist < minDistance) {
+                            minDistance = totalDist;
+                            bestPassage = passage;
+                        }
+                    }
+                }
+                
+                // Если не нашли проход между точками, берем ближайший
+                if (!bestPassage) {
+                    for (const passage of passages) {
+                        const distToCurrent = Math.abs(passage.span - currentSpan);
+                        const distToNext = Math.abs(passage.span - nextSpan);
+                        const totalDist = distToCurrent + distToNext;
+                        
+                        if (totalDist < minDistance) {
+                            minDistance = totalDist;
+                            bestPassage = passage;
+                        }
+                    }
+                }
+                
+                if (!bestPassage) {
+                    // Если по какой-то причине не нашли проход, используем прямую линию
+                    return `M ${x1} ${y1} L ${x2} ${y2}`;
+                }
+                
+                // Строим маршрут через проход
+                const passageX = this.config.line_start_x + (bestPassage.span - 1) * this.config.span_spacing;
+                const passageY1 = current.alley * this.config.alley_spacing;
+                const passageY2 = next.alley * this.config.alley_spacing;
+                
+                // Путь: от текущей точки вдоль аллеи до прохода, через проход, затем вдоль следующей аллеи к целевой точке
+                return `M ${x1} ${y1} L ${passageX} ${passageY1} L ${passageX} ${passageY2} L ${x2} ${y2}`;
             }
             
             showTooltip(event, mezzanine, floor, alley, span, visitData) {

@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тепловая карта перемещений сотрудников</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+            height: 100%;
+        }
+
+        .container {
+            max-width: none;
+            margin: 0;
+            background: white;
+            border-radius: 0;
+            box-shadow: none;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .main-content {
+            display: flex;
+            height: calc(100vh - 90px);
+        }
+
+        .control-panel {
+            width: 320px;
+            background: #f8f9fa;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .map-container {
+            flex: 1;
+            background: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .map-canvas {
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            position: relative;
+        }
+
+        .floor-selector, .employee-selector {
+            margin-bottom: 30px;
+        }
+
+        .floor-selector h3, .employee-selector h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }
+
+        .floor-selector select, .employee-selector select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 14px;
+            background: white;
+            color: #495057;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: none;
+        }
+
+        .floor-selector select:focus, .employee-selector select:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+
+        .stats-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .stats-panel h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            max-width: 100%;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            transition: transform 0.2s ease;
+            max-width: 100%;
+            box-sizing: border-box;
+            font-size: 0.9em;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-item.total {
+            background: linear-gradient(135deg, #6c757d, #495057);
+            color: white;
+        }
+
+        .stat-item.employees {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+        }
+
+        .stat-item.movements {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+        }
+
+        .stat-item.locations {
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+        }
+
+        .stat-number {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .legend {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .legend h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 16px;
+            margin-right: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 3px;
+        }
+
+        .legend-gradient {
+            background: linear-gradient(90deg, 
+                rgba(46, 204, 113, 0.2) 0%, 
+                rgba(241, 196, 15, 0.5) 25%,
+                rgba(230, 126, 34, 0.7) 50%, 
+                rgba(231, 76, 60, 0.9) 75%,
+                rgba(192, 57, 43, 1) 100%);
+        }
+
+        .svg-container {
+            width: 100%;
+            height: 100%;
+            min-height: 1200px;
+        }
+
+        .alley-line {
+            stroke-width: 3;
+            opacity: 0.8;
+            transition: all 0.3s ease;
+        }
+
+        .alley-line:hover {
+            stroke-width: 4;
+            opacity: 1;
+        }
+
+        .alley-line.empty {
+            stroke: #bdc3c7;
+            stroke-width: 1;
+            stroke-dasharray: 5,5;
+            opacity: 0.4;
+        }
+
+        .span-point {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .span-point:hover {
+            stroke-width: 3;
+        }
+
+        .alley-label, .span-label {
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            fill: #2c3e50;
+            text-anchor: middle;
+            dominant-baseline: central;
+        }
+
+        .alley-label {
+            font-size: 14px;
+        }
+
+        .span-label {
+            font-size: 11px;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 13px;
+            max-width: 400px;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+
+        .tooltip.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .tooltip h4 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #fff;
+        }
+
+        .tooltip-info {
+            margin: 5px 0;
+            font-size: 13px;
+        }
+
+        .file-upload {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .file-upload label {
+            display: inline-block;
+            padding: 15px 25px;
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .file-upload label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.3);
+        }
+
+        .update-button {
+            width: 100%;
+            padding: 12px 15px;
+            margin-top: 10px;
+            border: 2px solid #2ecc71;
+            border-radius: 10px;
+            background: #2ecc71;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .update-button:hover {
+            background: #27ae60;
+            transform: translateY(-2px);
+            box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
+        }
+
+        @media (max-width: 1200px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .control-panel {
+                width: 100%;
+                max-height: 300px;
+            }
+            
+            .stat-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔥 Тепловая карта перемещений сотрудников</h1>
+        </div>
+
+        <div class="main-content">
+            <div class="control-panel">
+                <div class="file-upload">
+                    <input type="file" id="file-input" accept=".xlsx,.xls" />
+                    <label for="file-input">📁 Загрузить XLSX файл</label>
+                </div>
+
+                <div class="employee-selector">
+                    <h3>👤 Выбор сотрудника</h3>
+                    <select id="employee-select">
+                        <option value="">Выберите сотрудника</option>
+                        <option value="ALL">Все сотрудники</option>
+                    </select>
+                </div>
+
+                <div class="floor-selector">
+                    <h3>🏢 Выбор этажа</h3>
+                    <select id="floor-select">
+                        <option value="">Выберите этаж</option>
+                    </select>
+                    <button id="update-button" class="update-button">🔄 Обновить карту</button>
+                </div>
+
+                <div class="stats-panel">
+                    <h3 id="stats-title">📊 Статистика перемещений</h3>
+                    <div class="stat-grid">
+                        <div class="stat-item total">
+                            <div class="stat-number" id="total-movements">0</div>
+                            <div class="stat-label">Перемещений</div>
+                        </div>
+                        <div class="stat-item employees">
+                            <div class="stat-number" id="total-employees">0</div>
+                            <div class="stat-label">Сотрудников</div>
+                        </div>
+                        <div class="stat-item locations">
+                            <div class="stat-number" id="unique-locations">0</div>
+                            <div class="stat-label">Мест</div>
+                        </div>
+                        <div class="stat-item movements">
+                            <div class="stat-number" id="max-visits">0</div>
+                            <div class="stat-label">Макс. визитов</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="legend">
+                    <h3>🎨 Интенсивность посещений</h3>
+                    <div class="legend-item">
+                        <div class="legend-color legend-gradient"></div>
+                        <span>Слабая → Сильная</span>
+                    </div>
+                    <div style="font-size: 12px; margin-top: 10px; color: #6c757d;">
+                        Цвет показывает частоту посещений места. Чем темнее и краснее, тем чаще посещалось.
+                    </div>
+                </div>
+            </div>
+
+            <div class="map-container">
+                <div class="map-canvas">
+                    <svg id="mezzanine-svg" class="svg-container" viewBox="0 0 1400 1400">
+                        <defs>
+                            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
+                            </filter>
+                        </defs>
+                        <text x="700" y="700" text-anchor="middle" fill="#bdc3c7" font-size="24" font-family="Arial, sans-serif">
+                            Загрузите файл с данными о перемещениях
+                        </text>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        class HeatMapGenerator {
+            constructor() {
+                this.movements = [];
+                this.employees = [];
+                this.locationVisits = {};
+                this.processedData = {};
+                this.currentEmployee = null;
+                this.currentFloor = null;
+                this.activeTooltip = null;
+                
+                this.config = {
+                    alley_spacing: 45,
+                    span_spacing: 25,
+                    line_start_x: 150,
+                    line_length: 800,
+                    span_width: 15,
+                    span_height: 8
+                };
+                
+                this.alley_counts = {
+                    'M': 24,
+                    'R': 23,
+                    'X': 15
+                };
+                
+                this.colors = {
+                    'M': '#3498db',
+                    'R': '#e74c3c',
+                    'X': '#f39c12'
+                };
+                
+                this.initEventListeners();
+            }
+            
+            initEventListeners() {
+                document.getElementById('file-input').addEventListener('change', (e) => this.handleFileUpload(e));
+                document.getElementById('employee-select').addEventListener('change', (e) => this.handleEmployeeChange(e.target.value));
+                document.getElementById('floor-select').addEventListener('change', (e) => this.currentFloor = e.target.value);
+                document.getElementById('update-button').addEventListener('click', () => this.updateMap());
+                document.addEventListener('click', (e) => {
+                    if (!e.target.closest('.span-point') && this.activeTooltip) {
+                        this.hideTooltip();
+                    }
+                });
+            }
+            
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                try {
+                    const data = await this.readExcelFile(file);
+                    console.log('Сырые данные:', data);
+                    this.processMovements(data);
+                    this.updateUI();
+                } catch (error) {
+                    console.error('Ошибка при обработке файла:', error);
+                    alert('Ошибка при обработке файла: ' + error.message);
+                }
+            }
+            
+            readExcelFile(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                            console.log('Доступные листы:', workbook.SheetNames);
+                            
+                            let worksheet;
+                            if (workbook.SheetNames.includes('Набор')) {
+                                worksheet = workbook.Sheets['Набор'];
+                            } else {
+                                worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                            }
+                            
+                            const data = XLSX.utils.sheet_to_json(worksheet);
+                            console.log('Прочитано записей:', data.length);
+                            resolve(data);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    reader.onerror = reject;
+                    reader.readAsBinaryString(file);
+                });
+            }
+            
+            parseAddress(address) {
+                const addressString = String(address).trim();
+                
+                const matchWithLetter = addressString.match(/([MRX])(\d{3})-(\d{1,3})-(\d{2})/);
+                if (matchWithLetter) {
+                    const mezzanine = matchWithLetter[1];
+                    const floorAlleyCode = matchWithLetter[2];
+                    const span = parseInt(matchWithLetter[3]);
+                    const placeShelfCode = parseInt(matchWithLetter[4]);
+                    
+                    const floor = parseInt(floorAlleyCode[0]);
+                    const alley = parseInt(floorAlleyCode.substring(1));
+                    const shelf = placeShelfCode >= 10 ? Math.floor(placeShelfCode / 10) : 1;
+                    const place = placeShelfCode % 10 !== 0 ? placeShelfCode % 10 : placeShelfCode;
+                    
+                    return { mezzanine, floor, alley, span, place, shelf, address: addressString };
+                }
+                
+                const matchWithoutLetter = addressString.match(/(\d{3})-(\d{1,3})-(\d{2})/);
+                if (matchWithoutLetter) {
+                    const floorAlleyCode = matchWithoutLetter[1];
+                    const span = parseInt(matchWithoutLetter[2]);
+                    const placeShelfCode = parseInt(matchWithoutLetter[3]);
+                    
+                    const floor = parseInt(floorAlleyCode[0]);
+                    const alley = parseInt(floorAlleyCode.substring(1));
+                    
+                    if (floor === 6 || floor === 7) {
+                        const mezzanine = 'X';
+                        const shelf = placeShelfCode >= 10 ? Math.floor(placeShelfCode / 10) : 1;
+                        const place = placeShelfCode % 10 !== 0 ? placeShelfCode % 10 : placeShelfCode;
+                        return { mezzanine, floor, alley, span, place, shelf, address: addressString };
+                    }
+                }
+                
+                return null;
+            }
+            
+            processMovements(rawData) {
+                console.log('Обработка перемещений:', rawData.length, 'записей');
+                
+                this.movements = [];
+                const employeeSet = new Set();
+                this.locationVisits = {};
+                
+                for (const row of rawData) {
+                    const employeeCol = row['Исполнитель'] || row['Executor'] || row['Employee'];
+                    const locationCol = row['Место'] || row['Location'] || row['Place'];
+                    
+                    if (!employeeCol || !locationCol) continue;
+                    
+                    const employee = String(employeeCol).trim();
+                    const location = String(locationCol).trim();
+                    
+                    if (!employee || !location) continue;
+                    
+                    const parsed = this.parseAddress(location);
+                    if (parsed) {
+                        employeeSet.add(employee);
+                        
+                        this.movements.push({
+                            employee: employee,
+                            location: location,
+                            ...parsed
+                        });
+                        
+                        // Подсчет посещений для каждого места
+                        const locationKey = `${parsed.mezzanine}_${parsed.floor}_${parsed.alley}_${parsed.span}`;
+                        if (!this.locationVisits[locationKey]) {
+                            this.locationVisits[locationKey] = {
+                                count: 0,
+                                employees: new Set(),
+                                movements: []
+                            };
+                        }
+                        this.locationVisits[locationKey].count++;
+                        this.locationVisits[locationKey].employees.add(employee);
+                        this.locationVisits[locationKey].movements.push({
+                            employee: employee,
+                            location: location
+                        });
+                    }
+                }
+                
+                this.employees = Array.from(employeeSet).sort();
+                console.log('Найдено сотрудников:', this.employees.length);
+                console.log('Обработано перемещений:', this.movements.length);
+                console.log('Уникальных мест:', Object.keys(this.locationVisits).length);
+                
+                // Группировка по мезонинам и этажам
+                this.processedData = {};
+                for (const movement of this.movements) {
+                    const key = `${movement.mezzanine}_${movement.floor}`;
+                    if (!this.processedData[key]) {
+                        this.processedData[key] = {
+                            mezzanine: movement.mezzanine,
+                            floor: movement.floor,
+                            movements: []
+                        };
+                    }
+                    this.processedData[key].movements.push(movement);
+                }
+            }
+            
+            handleEmployeeChange(employee) {
+                this.currentEmployee = employee;
+                this.updateStats();
+                this.updateMap();
+            }
+            
+            updateUI() {
+                this.updateEmployeeSelector();
+                this.updateFloorSelector();
+                this.updateStats();
+                
+                // Автоматически выбираем первого сотрудника или всех
+                if (this.employees.length > 0) {
+                    document.getElementById('employee-select').value = 'ALL';
+                    this.currentEmployee = 'ALL';
+                }
+                
+                // Автоматически выбираем первый этаж
+                const floors = Object.keys(this.processedData);
+                if (floors.length > 0) {
+                    const firstFloor = floors[0];
+                    document.getElementById('floor-select').value = firstFloor;
+                    this.currentFloor = firstFloor;
+                    this.updateMap();
+                }
+            }
+            
+            updateEmployeeSelector() {
+                const select = document.getElementById('employee-select');
+                select.innerHTML = '<option value="">Выберите сотрудника</option>';
+                select.innerHTML += '<option value="ALL">Все сотрудники</option>';
+                
+                for (const employee of this.employees) {
+                    const option = document.createElement('option');
+                    option.value = employee;
+                    option.textContent = employee;
+                    select.appendChild(option);
+                }
+            }
+            
+            updateFloorSelector() {
+                const select = document.getElementById('floor-select');
+                select.innerHTML = '<option value="">Выберите этаж</option>';
+                
+                const floors = Object.keys(this.processedData).sort((a, b) => {
+                    const [mezA, floorA] = a.split('_');
+                    const [mezB, floorB] = b.split('_');
+                    
+                    if (mezA !== mezB) {
+                        const order = { 'M': 1, 'R': 2, 'X': 3 };
+                        return order[mezA] - order[mezB];
+                    }
+                    
+                    return parseInt(floorA) - parseInt(floorB);
+                });
+                
+                for (const floorKey of floors) {
+                    const floorData = this.processedData[floorKey];
+                    const displayName = floorData.mezzanine === 'X' 
+                        ? `Этаж ${floorData.floor}` 
+                        : `${floorData.mezzanine}${floorData.floor}`;
+                    
+                    const option = document.createElement('option');
+                    option.value = floorKey;
+                    option.textContent = displayName;
+                    select.appendChild(option);
+                }
+            }
+            
+            updateStats() {
+                let movementsToCount = this.movements;
+                let locationVisitsToCount = this.locationVisits;
+                
+                if (this.currentEmployee && this.currentEmployee !== 'ALL') {
+                    movementsToCount = this.movements.filter(m => m.employee === this.currentEmployee);
+                    
+                    // Пересчитываем посещения мест для выбранного сотрудника
+                    locationVisitsToCount = {};
+                    for (const movement of movementsToCount) {
+                        const locationKey = `${movement.mezzanine}_${movement.floor}_${movement.alley}_${movement.span}`;
+                        if (!locationVisitsToCount[locationKey]) {
+                            locationVisitsToCount[locationKey] = { count: 0 };
+                        }
+                        locationVisitsToCount[locationKey].count++;
+                    }
+                }
+                
+                const totalMovements = movementsToCount.length;
+                const totalEmployees = this.currentEmployee && this.currentEmployee !== 'ALL' ? 1 : this.employees.length;
+                const uniqueLocations = Object.keys(locationVisitsToCount).length;
+                const maxVisits = Math.max(0, ...Object.values(locationVisitsToCount).map(v => v.count));
+                
+                document.getElementById('total-movements').textContent = totalMovements.toLocaleString();
+                document.getElementById('total-employees').textContent = totalEmployees.toLocaleString();
+                document.getElementById('unique-locations').textContent = uniqueLocations.toLocaleString();
+                document.getElementById('max-visits').textContent = maxVisits.toLocaleString();
+                
+                // Обновляем заголовок
+                const statsTitle = document.getElementById('stats-title');
+                if (this.currentEmployee && this.currentEmployee !== 'ALL') {
+                    statsTitle.textContent = `📊 ${this.currentEmployee}`;
+                } else {
+                    statsTitle.textContent = '📊 Все сотрудники';
+                }
+            }
+            
+            getHeatColor(visitCount, maxVisits) {
+                if (visitCount === 0) return 'rgba(189, 195, 199, 0.3)';
+                
+                const intensity = visitCount / maxVisits;
+                
+                // Градиент от зеленого (слабая активность) к красному (высокая активность)
+                if (intensity <= 0.2) {
+                    return `rgba(46, 204, 113, ${0.2 + intensity * 0.3})`;
+                } else if (intensity <= 0.4) {
+                    return `rgba(241, 196, 15, ${0.3 + intensity * 0.4})`;
+                } else if (intensity <= 0.6) {
+                    return `rgba(230, 126, 34, ${0.5 + intensity * 0.3})`;
+                } else if (intensity <= 0.8) {
+                    return `rgba(231, 76, 60, ${0.7 + intensity * 0.2})`;
+                } else {
+                    return `rgba(192, 57, 43, ${0.9 + intensity * 0.1})`;
+                }
+            }
+            
+            updateMap() {
+                if (!this.currentFloor || !this.processedData[this.currentFloor]) {
+                    this.clearMap();
+                    return;
+                }
+                
+                const floorData = this.processedData[this.currentFloor];
+                const mezzanine = floorData.mezzanine;
+                const floor = floorData.floor;
+                
+                // Фильтруем перемещения по сотруднику
+                let movementsForFloor = floorData.movements;
+                if (this.currentEmployee && this.currentEmployee !== 'ALL') {
+                    movementsForFloor = movementsForFloor.filter(m => m.employee === this.currentEmployee);
+                }
+                
+                // Группируем по аллеям и пролетам
+                const alleySpanData = {};
+                const spanVisits = {};
+                
+                for (const movement of movementsForFloor) {
+                    const alley = movement.alley;
+                    const span = movement.span;
+                    
+                    if (!alleySpanData[alley]) {
+                        alleySpanData[alley] = new Set();
+                    }
+                    alleySpanData[alley].add(span);
+                    
+                    const spanKey = `${alley}_${span}`;
+                    if (!spanVisits[spanKey]) {
+                        spanVisits[spanKey] = {
+                            count: 0,
+                            employees: new Set(),
+                            movements: []
+                        };
+                    }
+                    spanVisits[spanKey].count++;
+                    spanVisits[spanKey].employees.add(movement.employee);
+                    spanVisits[spanKey].movements.push(movement);
+                }
+                
+                // Находим максимальное количество посещений для нормализации
+                const maxVisits = Math.max(1, ...Object.values(spanVisits).map(v => v.count));
+                
+                this.drawMap(mezzanine, floor, alleySpanData, spanVisits, maxVisits);
+            }
+            
+            drawMap(mezzanine, floor, alleySpanData, spanVisits, maxVisits) {
+                const svg = document.getElementById('mezzanine-svg');
+                svg.innerHTML = '';
+                
+                // Добавляем фильтр для тени
+                svg.innerHTML = `
+                    <defs>
+                        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
+                        </filter>
+                    </defs>
+                `;
+                
+                const alleyCount = this.alley_counts[mezzanine];
+                const baseColor = this.colors[mezzanine];
+                
+                // Отрисовываем каждую аллею
+                for (let alley = 1; alley <= alleyCount; alley++) {
+                    const y = alley * this.config.alley_spacing;
+                    const spans = alleySpanData[alley] ? Array.from(alleySpanData[alley]).sort((a, b) => a - b) : [];
+                    
+                    // Рисуем линию аллеи
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', this.config.line_start_x);
+                    line.setAttribute('y1', y);
+                    line.setAttribute('x2', this.config.line_start_x + this.config.line_length);
+                    line.setAttribute('y2', y);
+                    line.setAttribute('stroke', spans.length > 0 ? baseColor : '#bdc3c7');
+                    line.setAttribute('class', spans.length > 0 ? 'alley-line' : 'alley-line empty');
+                    svg.appendChild(line);
+                    
+                    // Подпись аллеи
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', this.config.line_start_x - 30);
+                    label.setAttribute('y', y);
+                    label.setAttribute('class', 'alley-label');
+                    label.textContent = alley;
+                    svg.appendChild(label);
+                    
+                    // Рисуем пролеты с тепловой картой
+                    for (const span of spans) {
+                        const x = this.config.line_start_x + (span - 1) * this.config.span_spacing;
+                        const spanKey = `${alley}_${span}`;
+                        const visitData = spanVisits[spanKey];
+                        const visitCount = visitData ? visitData.count : 0;
+                        
+                        // Определяем цвет на основе интенсивности посещений
+                        const heatColor = this.getHeatColor(visitCount, maxVisits);
+                        
+                        // Рисуем прямоугольник пролета
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        rect.setAttribute('x', x - this.config.span_width / 2);
+                        rect.setAttribute('y', y - this.config.span_height / 2);
+                        rect.setAttribute('width', this.config.span_width);
+                        rect.setAttribute('height', this.config.span_height);
+                        rect.setAttribute('fill', heatColor);
+                        rect.setAttribute('stroke', '#2c3e50');
+                        rect.setAttribute('stroke-width', '1');
+                        rect.setAttribute('class', 'span-point');
+                        rect.setAttribute('data-alley', alley);
+                        rect.setAttribute('data-span', span);
+                        rect.setAttribute('data-visits', visitCount);
+                        
+                        rect.addEventListener('click', (e) => {
+                            this.showTooltip(e, mezzanine, floor, alley, span, visitData);
+                        });
+                        
+                        svg.appendChild(rect);
+                        
+                        // Подпись пролета
+                        if (span % 5 === 0 || spans.length < 10) {
+                            const spanLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                            spanLabel.setAttribute('x', x);
+                            spanLabel.setAttribute('y', y + 25);
+                            spanLabel.setAttribute('class', 'span-label');
+                            spanLabel.textContent = span;
+                            svg.appendChild(spanLabel);
+                        }
+                    }
+                }
+                
+                // Заголовок карты
+                const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                title.setAttribute('x', '700');
+                title.setAttribute('y', '30');
+                title.setAttribute('text-anchor', 'middle');
+                title.setAttribute('fill', '#2c3e50');
+                title.setAttribute('font-size', '24');
+                title.setAttribute('font-weight', 'bold');
+                const displayName = mezzanine === 'X' ? `Этаж ${floor}` : `${mezzanine}${floor}`;
+                title.textContent = `Тепловая карта перемещений - ${displayName}`;
+                svg.appendChild(title);
+            }
+            
+            showTooltip(event, mezzanine, floor, alley, span, visitData) {
+                const tooltip = document.getElementById('tooltip');
+                
+                const visitCount = visitData ? visitData.count : 0;
+                const employeeCount = visitData ? visitData.employees.size : 0;
+                const movements = visitData ? visitData.movements : [];
+                
+                let html = `
+                    <h4>${mezzanine}${floor} - Аллея ${alley}, Пролет ${span}</h4>
+                    <div class="tooltip-info"><strong>Всего посещений:</strong> ${visitCount}</div>
+                    <div class="tooltip-info"><strong>Сотрудников:</strong> ${employeeCount}</div>
+                `;
+                
+                if (movements.length > 0) {
+                    // Группируем по сотрудникам
+                    const employeeVisits = {};
+                    for (const movement of movements) {
+                        if (!employeeVisits[movement.employee]) {
+                            employeeVisits[movement.employee] = 0;
+                        }
+                        employeeVisits[movement.employee]++;
+                    }
+                    
+                    html += '<div class="tooltip-info" style="margin-top: 10px;"><strong>По сотрудникам:</strong></div>';
+                    const sortedEmployees = Object.entries(employeeVisits).sort((a, b) => b[1] - a[1]);
+                    for (const [employee, count] of sortedEmployees.slice(0, 10)) {
+                        html += `<div class="tooltip-info" style="padding-left: 10px;">• ${employee}: ${count}</div>`;
+                    }
+                    
+                    if (sortedEmployees.length > 10) {
+                        html += `<div class="tooltip-info" style="padding-left: 10px; font-style: italic;">... и еще ${sortedEmployees.length - 10}</div>`;
+                    }
+                }
+                
+                tooltip.innerHTML = html;
+                tooltip.classList.add('show');
+                
+                const rect = event.target.getBoundingClientRect();
+                tooltip.style.left = (rect.left + rect.width / 2) + 'px';
+                tooltip.style.top = (rect.top - 10) + 'px';
+                tooltip.style.transform = 'translate(-50%, -100%)';
+                
+                this.activeTooltip = tooltip;
+            }
+            
+            hideTooltip() {
+                const tooltip = document.getElementById('tooltip');
+                tooltip.classList.remove('show');
+                this.activeTooltip = null;
+            }
+            
+            clearMap() {
+                const svg = document.getElementById('mezzanine-svg');
+                svg.innerHTML = `
+                    <text x="700" y="700" text-anchor="middle" fill="#bdc3c7" font-size="24" font-family="Arial, sans-serif">
+                        Выберите сотрудника и этаж для отображения тепловой карты
+                    </text>
+                `;
+            }
+        }
+        
+        // Инициализация приложения
+        const heatMap = new HeatMapGenerator();
+    </script>
+</body>
+</html>
